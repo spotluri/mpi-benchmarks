@@ -1,4 +1,4 @@
-# Enter root directory of mpich install
+# Enter root directory of ompi install
 MPICC=$(shell find ${MPI_HOME} -name mpicc -print)
 
 NULL_STRING :=
@@ -7,12 +7,12 @@ MPI_INCLUDE := -I${MPI_HOME}/include
 else
 $(error Variable MPI_HOME="${MPI_HOME}" does not seem to contain a valid mpicc)
 endif
-LIB_PATH    =
+LIB_PATH    = 
 LIBS        = 
 CC          = ${MPI_HOME}/bin/mpicc 
-OPTFLAGS    = -O3 
-CLINKER     = ${CC} 
-LDFLAGS     =
+OPTFLAGS    = -O3 -I${CUDA_HOME}/include
+CLINKER     = ${CC}
+LDFLAGS     = -L${CUDA_HOME}/lib64 -lcuda -lcudart 
 CPPFLAGS    = -DENABLE_CUDA -DCHECK
 
 IMB-MPI1 = IMB-MPI1

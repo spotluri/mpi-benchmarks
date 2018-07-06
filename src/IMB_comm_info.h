@@ -99,6 +99,9 @@ struct comm_info
     int 	pair0, pair1;		/* process pair                            */
     int 	select_tag;		/* 0/1 for tag selection off/on            */
     int 	select_source;		/* 0/1 for sender selection off/on         */
+#if defined (ENABLE_CUDA)
+    int     use_device;     /*allocate data buffers on the device*/
+#endif
 
     void* 		s_buffer;	/* send    buffer                          */
     assign_type*	s_data;		/* assign_type equivalent of s_buffer      */

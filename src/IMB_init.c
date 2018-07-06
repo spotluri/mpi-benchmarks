@@ -372,6 +372,10 @@ int IMB_basic_input(struct comm_info* c_info, struct Bench** P_BList,
     *NP_min=2;
 #endif
 
+#if defined (ENABLE_CUDA)
+    c_info->use_device = 0;
+#endif
+
     if( c_info->w_rank == 0 )
     {
         /* Interpret command line */
@@ -848,6 +852,34 @@ int IMB_basic_input(struct comm_info* c_info, struct Bench** P_BList,
                     }
                     iarg++;
                 }
+#if defined (ENABLE_CUDA)
+                else if(!strcmp((*argv)[iarg],"-cuda"))
+                {
+                    int tst;
+                    if( !IMB_chk_arg_int(&tst,argv,argc,iarg+1) )
+                    {
+                        ok=-1;
+                    }
+                    else if( tst==1 )
+                    {
+                        fprintf(stderr, "using CUDA: %d \n", tst);
+                        c_info->use_device=tst;
+                    }
+                    else
+                    {
+                        ok=-1;
+                    }
+
+                    if( ok==-1 )
+                    {
+                        fprintf(stderr,"Invalid argument after \"cuda\"\n");
+                        break;
+                    }
+
+                    iarg++;
+                    blist_ind = CONSTRUCT_BLIST;
+                }
+#endif
                 else
                 {
                     /*It must be the name of one of benchmark*/

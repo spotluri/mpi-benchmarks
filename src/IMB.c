@@ -72,6 +72,11 @@ For more documentation than found here, see
 
 #include "IMB_prototypes.h"
 
+#ifdef ENABLE_CUDA
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
+
 extern int num_alloc, num_free;
 
 
@@ -80,6 +85,12 @@ extern int num_alloc, num_free;
 
 
 int main(int argc, char **argv)
+
+#ifdef ENABLE_CUDA
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
+
 /*
 
 
@@ -154,6 +165,40 @@ Return value          (type int)
 	MPI_Finalize();
 	return 0;
     }
+
+#if defined(ENABLE_CUDA)
+    CUresult curesult = CUDA_SUCCESS;
+    CUcontext cuContext;
+    if (C_INFO.use_device) {
+        char *str;
+        int dev_id = 0, local_rank, dev_count;
+
+        CUdevice cuDevice;
+
+        if ((str = getenv("MV2_COMM_WORLD_LOCAL_RANK")) != NULL) {
+            local_rank = atoi(str);
+            cudaGetDeviceCount(&dev_count);
+            dev_id = local_rank % dev_count;
+        } else if ((str = getenv("OMPI_COMM_WORLD_LOCAL_RANK")) != NULL) {
+            local_rank = atoi(str);
+            cudaGetDeviceCount(&dev_count);
+            dev_id = local_rank % dev_count;
+    }
+
+        curesult = cuInit(0);
+        if (curesult != CUDA_SUCCESS) {
+            return EXIT_FAILURE;
+        }
+        curesult = cuDeviceGet(&cuDevice, dev_id);
+        if (curesult != CUDA_SUCCESS) {
+            return EXIT_FAILURE;
+        }
+        curesult = cuCtxCreate(&cuContext, 0, cuDevice);
+        if (curesult != CUDA_SUCCESS) {
+            return EXIT_FAILURE;
+        }
+    }
+#endif
 
     /* IMB 3.1 << */
     IMB_show_selections(&C_INFO,BList,&argc,&argv);
@@ -434,6 +479,15 @@ Return value          (type int)
 
     /* >> IMB 3.1  */
     MPI_Finalize();
+
+#if defined(ENABLE_CUDA)
+    if (C_INFO.use_device) {
+        curesult = cuCtxDestroy(cuContext);
+        if (curesult != CUDA_SUCCESS) {
+            return EXIT_FAILURE;
+        }
+    }
+#endif
 
     return 0;
 } /* end of main*/

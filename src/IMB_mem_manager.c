@@ -87,6 +87,10 @@ For more documentation than found here, see
 #include "IMB_prototypes.h"
 
 #include <limits.h> /* for INT_MAX declaration*/
+#ifdef ENABLE_CUDA
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
 
 void* IMB_v_alloc(size_t Len, char* where)
 /*
@@ -211,6 +215,11 @@ In/out variables:
 
 */
 {
+#ifdef ENABLE_CUDA
+    int mem_type = 0;
+    cudaError_t  cuerr = cudaSuccess;
+#endif
+
 /* July 2002 V2.2.1 change: use MPI_Alloc_mem */
 #if ( defined EXT || defined MPIIO || RMA )
     MPI_Aint slen = (MPI_Aint)(max(1,s_len));
@@ -223,6 +232,24 @@ In/out variables:
     
     if( c_info->s_alloc < s_len )
     {
+#ifdef ENABLE_CUDA
+    if (c_info->use_device) {
+        if (c_info->s_buffer) {
+            cuerr = cudaFree(c_info->s_buffer);
+            if (cudaSuccess != cuerr){
+               fprintf(stderr, "Could not free device memory\n");
+               exit(-1);
+            }
+        }
+        cuerr = cudaMalloc((void**)&c_info->s_buffer, s_len);
+        if (cudaSuccess != cuerr){
+            fprintf(stderr, "Could not allocate device memory\n");
+            exit(-1);
+        }
+        c_info->s_alloc = s_len;
+    } else {
+#endif
+
         /* July 2002 V2.2.1 change: use MPI_Alloc_mem */
 #if ( defined EXT || defined MPIIO || RMA)
     if (c_info->s_buffer)	
@@ -238,11 +265,33 @@ In/out variables:
 	c_info->s_alloc = s_len;
 #endif
 
+#ifdef ENABLE_CUDA
+    }
+#endif
+
 	c_info->s_data  = (assign_type*)c_info->s_buffer;
     }
 
     if( c_info->r_alloc < r_len )
     {
+#ifdef ENABLE_CUDA
+    if (c_info->use_device) {
+        if (c_info->r_buffer) {
+            cuerr = cudaFree(c_info->r_buffer);
+            if (cudaSuccess != cuerr){
+               fprintf(stderr, "Could not free device memory\n");
+               exit(-1);
+            }
+        }
+        cuerr = cudaMalloc((void**)&c_info->r_buffer, r_len);
+        if (cudaSuccess != cuerr){
+            fprintf(stderr, "Could not allocate device memory\n");
+            exit(-1);
+        }
+        c_info->r_alloc = r_len;
+   } else {
+#endif
+
 	 /* July 2002 V2.2.1 change: use MPI_Alloc_mem */
 #if ( defined EXT || defined MPIIO || RMA)
     if (c_info->r_buffer)	
@@ -256,6 +305,10 @@ In/out variables:
 
 	c_info->r_buffer = IMB_v_alloc(r_len,where);
 	c_info->r_alloc = r_len;
+#endif
+
+#ifdef ENABLE_CUDA
+    }
 #endif
 
 	c_info->r_data = (assign_type*)c_info->r_buffer;
@@ -391,18 +444,47 @@ In/out variables:
 	else
 	    a_pos2 =  a_pos1-1;
 
-	if( value )
-	    for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
-		((assign_type *)buf)[j] = BUF_VALUE(rank,i);
-	else
-	    for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
-		((assign_type *)buf)[j] = 0.;
+#ifdef ENABLE_CUDA
+        int mem_type = CU_MEMORYTYPE_HOST;
+        assign_type *A_h;
+        cudaError_t cuerr = cudaSuccess;
 
-	if( a_pos1*asize != pos1 )
-	{
-	    void* xx = (void*)(((char*)buf)+pos1-a_pos1*asize);
-	    memmove(buf,xx,pos2-pos1+1); 
-	}
+        cuPointerGetAttribute((void*) &mem_type,
+                CU_POINTER_ATTRIBUTE_MEMORY_TYPE, (CUdeviceptr) buf);
+
+        if (mem_type == CU_MEMORYTYPE_DEVICE) {
+            A_h = (assign_type *)malloc((a_pos2 - a_pos1 + 1) * sizeof(assign_type));
+            if( value ) {
+                for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
+                    ((assign_type *)A_h)[j] = BUF_VALUE(rank,i);
+            } else {
+                 for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
+                    ((assign_type *)A_h)[j] = 0.;
+            }
+            cudaMemcpy((void *)buf, (void *)A_h, (a_pos2 - a_pos1 + 1) * sizeof(assign_type), cudaMemcpyHostToDevice);
+            if (cudaSuccess != cuerr){
+                fprintf(stderr, "Could not copy host memory to device memory\n");
+                exit(-1);
+            }
+            cudaStreamSynchronize(0);
+            free (A_h);
+        } else {
+#endif
+	    if( value )
+	        for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
+	    	((assign_type *)buf)[j] = BUF_VALUE(rank,i);
+	    else
+	        for ( i=a_pos1,j=0 ; i<=a_pos2; i++,j++ )
+	    	((assign_type *)buf)[j] = 0.;
+
+	    if( a_pos1*asize != pos1 )
+	    {
+	        void* xx = (void*)(((char*)buf)+pos1-a_pos1*asize);
+	        memmove(buf,xx,pos2-pos1+1); 
+	    }
+#ifdef ENABLE_CUDA
+    }
+#endif
     } /*if( pos2>= pos1 )*/
 }
 
@@ -1066,13 +1148,26 @@ In/out variables:
 
 */
 {
+#ifdef ENABLE_CUDA
+    int mem_type = 0;
+    cudaError_t  cuerr = cudaSuccess;
+#endif
+
 /* July 2002 V2.2.1 change: use MPI_Free_mem */
     if ( c_info->s_alloc> 0)
     {
+#ifdef ENABLE_CUDA
+        if (c_info->use_device) {
+            cudaFree(c_info->s_buffer);
+    } else {
+#endif
 #if (defined EXT || defined MPIIO || defined RMA)
-	MPI_Free_mem( c_info->s_buffer );
+	     MPI_Free_mem( c_info->s_buffer );
 #else
-	IMB_v_free( (void**)&c_info->s_buffer );
+	     IMB_v_free( (void**)&c_info->s_buffer );
+#endif
+#ifdef ENABLE_CUDA
+    }
 #endif
 
 	c_info-> s_alloc = 0;
@@ -1105,10 +1200,18 @@ In/out variables:
 /* July 2002 V2.2.1 change: use MPI_Free_mem */
     if ( c_info->r_alloc> 0)
     {
+#ifdef ENABLE_CUDA
+        if (c_info->use_device) {
+            cudaFree(c_info->r_buffer);
+        } else {
+#endif
 #if (defined EXT || defined MPIIO || defined RMA)
-	MPI_Free_mem( c_info->r_buffer );
+	        MPI_Free_mem( c_info->r_buffer );
 #else
-	IMB_v_free( (void**)&c_info->r_buffer );
+	        IMB_v_free( (void**)&c_info->r_buffer );
+#endif
+#ifdef ENABLE_CUDA
+       }
 #endif
 
 	c_info-> r_alloc = 0;

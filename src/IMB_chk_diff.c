@@ -78,8 +78,10 @@ For more documentation than found here, see
  ***************************************************************************/
 
 
-
-
+#ifdef ENABLE_CUDA
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
 
 #include "IMB_declare.h"
 #include "IMB_benchmark.h"
@@ -185,11 +187,44 @@ Return value          (type double)
 
     D=0.;
 
+#ifdef ENABLE_CUDA
+    int mem_type_A = CU_MEMORYTYPE_HOST;
+    int mem_type_B = CU_MEMORYTYPE_HOST;
+    assign_type *A_h, *B_h;
+    cudaError_t  cuerr = cudaSuccess;
+#endif
+
     d1 = -1.;
     *fault_pos = CHK_NO_FAULT;  
 
     if( len > 0 )
     {
+#ifdef ENABLE_CUDA
+        cuPointerGetAttribute((void*) &mem_type_A,
+                CU_POINTER_ATTRIBUTE_MEMORY_TYPE, (CUdeviceptr) A);
+        if (mem_type_A == CU_MEMORYTYPE_DEVICE) {
+            A_h = (assign_type *)malloc(len * sizeof(assign_type));
+            cudaMemcpy((void *)A_h, (void *)A, len * sizeof(assign_type), cudaMemcpyDeviceToHost);
+            if (cudaSuccess != cuerr){
+                fprintf(stderr, "Could not copy device memory to host memory\n");
+                goto exit;
+            }
+            A = A_h;
+        }
+
+        cuPointerGetAttribute((void*) &mem_type_B,
+                            CU_POINTER_ATTRIBUTE_MEMORY_TYPE, (CUdeviceptr) B);
+        if (mem_type_B == CU_MEMORYTYPE_DEVICE) {
+            B_h = (assign_type *)malloc(len * sizeof(assign_type));
+            cudaMemcpy((void *)B_h, (void *)B, len * sizeof(assign_type), cudaMemcpyDeviceToHost);
+            if (cudaSuccess != cuerr){
+                fprintf(stderr, "Could not copy device memory to host memory\n");
+                goto exit;
+            }
+            B = B_h;
+        }
+#endif
+
 	for(i =0; i<len && d1 <= TOL; i++)
 	{
 	    if( A[i] != 0. ) rel=A_ABS(A[i]);
@@ -207,8 +242,20 @@ Return value          (type double)
 	    *fault_pos = (i-1)*asize;
 	}
 
+#ifdef ENABLE_CUDA
+        if (mem_type_A == CU_MEMORYTYPE_DEVICE) {
+            free(A_h);
+        }
+        if (mem_type_B == CU_MEMORYTYPE_DEVICE) {
+            free(B_h);
+        }
+#endif
+
     }
 
+#ifdef ENABLE_CUDA
+exit:
+#endif
     return D;
 
 }
@@ -1344,9 +1391,44 @@ Output variables:
     else
     {
 
+#ifdef ENABLE_CUDA
+        int mem_type_part = CU_MEMORYTYPE_HOST;
+        int mem_type_whole = CU_MEMORYTYPE_HOST;
+        void *part_h, *whole_h;
+        cudaError_t  cuerr = cudaSuccess;
+
+        cuPointerGetAttribute((void*) &mem_type_part,
+                              CU_POINTER_ATTRIBUTE_MEMORY_TYPE, (CUdeviceptr) a_part);
+        if (mem_type_part == CU_MEMORYTYPE_DEVICE) {
+             part_h = malloc(p_size);
+             cudaMemcpy((void *)part_h, (void *)a_part, p_size, cudaMemcpyDeviceToHost);
+             if (cudaSuccess != cuerr){
+                 fprintf(stderr, "Could not copy device memory to host memory\n");
+                 exit(-1);
+             }
+             a_part = part_h;
+        }
+
+        cuPointerGetAttribute((void*) &mem_type_whole,
+                              CU_POINTER_ATTRIBUTE_MEMORY_TYPE, (CUdeviceptr) a_whole);
+        if (mem_type_whole == CU_MEMORYTYPE_DEVICE) {
+             whole_h = malloc(w_size);
+             cudaMemcpy((void *)whole_h, (void *)a_whole, w_size, cudaMemcpyDeviceToHost);
+             if (cudaSuccess != cuerr){
+                 fprintf(stderr, "Could not copy device memory to host memory\n");
+                 exit(-1);
+             }
+             a_whole = whole_h;
+        }
+#endif
+
 	if( p_size < asize )
 	{
-	    pcrc = IMB_compute_crc ((char*)part, p_size);
+#ifdef ENABLE_CUDA
+        pcrc = IMB_compute_crc ((char*)a_part, p_size);
+#else
+        pcrc = IMB_compute_crc ((char*)part, p_size);
+#endif
 
 	    *pos = 0;
 	    wcrc = pcrc-1;
@@ -1354,7 +1436,11 @@ Output variables:
 	    while( *pos <= w_size-p_size && wcrc != pcrc )
 	    {
 		void* h;
-		h = (void*)(((char*)whole)+*pos); 
+#ifdef ENABLE_CUDA
+        h = (void*)(((char*)a_whole)+*pos);
+#else
+        h = (void*)(((char*)whole)+*pos);
+#endif
 		wcrc = IMB_compute_crc ((char*)h, p_size);
 
 		if(wcrc!=pcrc) (*pos)++;
@@ -1389,6 +1475,17 @@ Output variables:
 
 	    *pos *= asize;
 	} /*if !( p_size < asize )*/
+
+#ifdef ENABLE_CUDA
+        if (mem_type_part == CU_MEMORYTYPE_DEVICE) {
+            free(part_h);
+        }
+
+        if (mem_type_whole == CU_MEMORYTYPE_DEVICE) {
+            free(whole_h);
+        }
+#endif
+
     }
 
     if( *fpos != CHK_NO_FAULT /*>= 0*/ ) *D=1.;
